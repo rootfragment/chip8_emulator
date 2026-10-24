@@ -4,6 +4,7 @@
 #include<string.h>
 #include<SDL2/SDL.h>
 
+
 #define SCALE 10
 
 SDL_Window *window;
@@ -17,6 +18,8 @@ uint8_t sound_timer;
 uint16_t pc;
 uint16_t I;
 uint8_t display[64 * 32];
+uint16_t stack[16];
+uint8_t  sp = 0;
 
 int init_graphics(void){
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) return 0;
@@ -70,6 +73,7 @@ void cycle(void) {
     uint16_t opcode = (memory[pc] << 8) | memory[pc + 1];
     pc += 2;
 
+
     uint8_t  x   = (opcode & 0x0F00) >> 8;
     uint8_t  y   = (opcode & 0x00F0) >> 4;
     uint8_t  n   =  opcode & 0x000F;
@@ -78,33 +82,71 @@ void cycle(void) {
 
 
     switch (opcode & 0xF000) {
-        case 0x1000:            
+        case 0x0000:
+            switch (nn) {
+                case 0xE0:              // 00E0: clear screen
+                    memset(display, 0, sizeof(display));
+                    break;
+                case 0xEE:              // 00EE: return from subroutine
+                    sp--;
+                    pc = stack[sp];
+                    break;
+            }
+            break;
+
+        case 0x1000:                    // 1NNN: jump
             pc = nnn;
             break;
 
-        case 0x6000:            
+        case 0x2000:                    // 2NNN: call subroutine
+            stack[sp] = pc;
+            sp++;
+            pc = nnn;
+            break;
+
+        case 0x3000:                    // 3XNN: skip if v[x] == nn
+            if (v[x] == nn) pc += 2;
+            break;
+
+        case 0x4000:                    // 4XNN: skip if v[x] != nn
+            if (v[x] != nn) pc += 2;
+            break;
+
+        case 0x5000:                    // 5XY0: skip if v[x] == v[y]
+            if (v[x] == v[y]) pc += 2;
+            break;
+
+        case 0x6000:                    // 6XNN: v[x] = nn
             v[x] = nn;
             break;
 
-        case 0xA000:            
+        case 0x7000:                    // 7XNN: v[x] += nn
+            v[x] += nn;
+            break;
+
+        case 0x9000:                    // 9XY0: skip if v[x] != v[y]
+            if (v[x] != v[y]) pc += 2;
+            break;
+
+        case 0xA000:                    // ANNN: I = nnn
             I = nnn;
             break;
 
-        case 0xD000: {          
-            uint8_t px = v[x] % 64;     
-            uint8_t py = v[y] % 32;     
-            v[0xF] = 0;                 
+        case 0xD000: {                  // DXYN: draw sprite
+            uint8_t px = v[x] % 64;
+            uint8_t py = v[y] % 32;
+            v[0xF] = 0;
 
             for (int row = 0; row < n; row++) {
-                if (py + row >= 32) break;          
+                if (py + row >= 32) break;
                 uint8_t sprite_byte = memory[I + row];
 
                 for (int col = 0; col < 8; col++) {
-                    if (px + col >= 64) break;      
+                    if (px + col >= 64) break;
                     if (sprite_byte & (0x80 >> col)) {
                         int idx = (py + row) * 64 + (px + col);
-                        if (display[idx]) v[0xF] = 1;   
-                        display[idx] ^= 1;              
+                        if (display[idx]) v[0xF] = 1;
+                        display[idx] ^= 1;
                     }
                 }
             }
@@ -115,7 +157,6 @@ void cycle(void) {
             printf("opcode %04X not implemented yet\n", opcode);
     }
 }
-
 
 int main(int argc, char **argv){
 	if (argc < 2) {
