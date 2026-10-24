@@ -2,7 +2,14 @@
 #include<stdlib.h>
 #include<stdint.h>
 #include<string.h>
- 
+#include<SDL2/SDL.h>
+
+#define SCALE 10
+
+SDL_Window *window;
+SDL_Renderer *renderer;
+
+
 uint8_t memory[4096];
 uint8_t v[16];
 uint8_t delay_timer;
@@ -10,6 +17,36 @@ uint8_t sound_timer;
 uint16_t pc;
 uint16_t I;
 uint8_t display[64 * 32];
+
+int init_graphics(void){
+	if (SDL_Init(SDL_INIT_VIDEO) < 0) return 0;
+
+	window = SDL_CreateWindow("Chip-8", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 64 * SCALE, 32 * SCALE, 0);
+	if (!window) return 0;
+
+	renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+	if (!renderer) return 0;
+
+	return 1;
+}
+
+void render(void){
+	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+	SDL_RenderClear(renderer);
+
+	SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+	for(int row = 0; row <32; row++){
+		for (int col =0; col < 64; col++){
+			if (display[row*64 + col]){
+				SDL_Rect r = { col * SCALE, row * SCALE, SCALE, SCALE};
+				SDL_RenderFillRect(renderer, &r);
+			}
+		}
+	}
+	SDL_RenderPresent(renderer);
+}
+
+
 
 void init(void){
 	memset(memory, 0, sizeof(memory));
@@ -29,30 +66,54 @@ int load_rom(const char *filename){
 	return 1;
 }
 
-void cycle(void){
-	uint16_t opcode = (memory[pc] << 8) | memory[pc+1];
-	pc += 2;
-	uint8_t x = (opcode & 0x0F00) >> 8;
-	uint8_t y = (opcode & 0x0F00) >> 4;
-	uint8_t n = opcode & 0x000F;
-	uint8_t nn = opcode & 0x00FF;
-	uint16_t nnn = opcode & 0x0FFF;
+void cycle(void) {
+    uint16_t opcode = (memory[pc] << 8) | memory[pc + 1];
+    pc += 2;
 
-	printf("pc = %03x opcode= %04x\n", pc -2,opcode);
+    uint8_t  x   = (opcode & 0x0F00) >> 8;
+    uint8_t  y   = (opcode & 0x00F0) >> 4;
+    uint8_t  n   =  opcode & 0x000F;
+    uint8_t  nn  =  opcode & 0x00FF;
+    uint16_t nnn =  opcode & 0x0FFF;
 
-	switch (opcode & 0xF000){
-		case 0x1000:
-			pc = nnn;
-			break;
-		case 0x6000:
-			v[x] = nn;
-			break;
-		case 0xA000:
-			I = nnn;
-			break;
-		default:
-			printf("Not defined yet \n");
-	}
+
+    switch (opcode & 0xF000) {
+        case 0x1000:            
+            pc = nnn;
+            break;
+
+        case 0x6000:            
+            v[x] = nn;
+            break;
+
+        case 0xA000:            
+            I = nnn;
+            break;
+
+        case 0xD000: {          
+            uint8_t px = v[x] % 64;     
+            uint8_t py = v[y] % 32;     
+            v[0xF] = 0;                 
+
+            for (int row = 0; row < n; row++) {
+                if (py + row >= 32) break;          
+                uint8_t sprite_byte = memory[I + row];
+
+                for (int col = 0; col < 8; col++) {
+                    if (px + col >= 64) break;      
+                    if (sprite_byte & (0x80 >> col)) {
+                        int idx = (py + row) * 64 + (px + col);
+                        if (display[idx]) v[0xF] = 1;   
+                        display[idx] ^= 1;              
+                    }
+                }
+            }
+            break;
+        }
+
+        default:
+            printf("opcode %04X not implemented yet\n", opcode);
+    }
 }
 
 
@@ -66,10 +127,25 @@ int main(int argc, char **argv){
 		printf("Could not open romfile %s", argv[1]);
 		return 1;
 	}
-	for(int i = 0; i<10; i++){
-		cycle();
+	if (!init_graphics()){
+		printf("SDL failed %s\n", SDL_GetError());
+		return 1;
 	}
-	printf("v0 = %d,v1 = %d I=%03x\n",v[0],v[1],I);
+	int running = 1;
+	while (running){
+		SDL_Event e;
+		while(SDL_PollEvent(&e)){
+			if(e.type == SDL_QUIT) running =0;
+		}
+		for(int i = 0; i< 10; i++) cycle();
+		if (delay_timer > 0) delay_timer--;
+		if (sound_timer > 0) sound_timer--;
+		render();
+		SDL_Delay(16);
+	}
+	SDL_DestroyRenderer(renderer);
+	SDL_DestroyWindow(window);
+	SDL_Quit();
 	return 0;
 }
 
