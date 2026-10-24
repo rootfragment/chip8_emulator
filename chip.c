@@ -29,6 +29,33 @@ int load_rom(const char *filename){
 	return 1;
 }
 
+void cycle(void){
+	uint16_t opcode = (memory[pc] << 8) | memory[pc+1];
+	pc += 2;
+	uint8_t x = (opcode & 0x0F00) >> 8;
+	uint8_t y = (opcode & 0x0F00) >> 4;
+	uint8_t n = opcode & 0x000F;
+	uint8_t nn = opcode & 0x00FF;
+	uint16_t nnn = opcode & 0x0FFF;
+
+	printf("pc = %03x opcode= %04x\n", pc -2,opcode);
+
+	switch (opcode & 0xF000){
+		case 0x1000:
+			pc = nnn;
+			break;
+		case 0x6000:
+			v[x] = nn;
+			break;
+		case 0xA000:
+			I = nnn;
+			break;
+		default:
+			printf("Not defined yet \n");
+	}
+}
+
+
 int main(int argc, char **argv){
 	if (argc < 2) {
 		printf("Usage: chip romfile\n");
@@ -39,7 +66,10 @@ int main(int argc, char **argv){
 		printf("Could not open romfile %s", argv[1]);
 		return 1;
 	}
-	printf("Rom successfully loaded. First two bytes %02x %02x\n",memory[0x200], memory[0x201]);
+	for(int i = 0; i<10; i++){
+		cycle();
+	}
+	printf("v0 = %d,v1 = %d I=%03x\n",v[0],v[1],I);
 	return 0;
 }
 
