@@ -2,9 +2,17 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>               // NEW
 #include <SDL2/SDL.h>
 
 #define SCALE 10
+
+// look settings
+#define RISE   0.6f
+#define DECAY  0.85f
+#define TINT_R 0.92f
+#define TINT_G 0.95f
+#define TINT_B 1.0f
 
 SDL_Window   *window;
 SDL_Renderer *renderer;
@@ -19,6 +27,10 @@ uint8_t  display[64 * 32];
 uint16_t stack[16];
 uint8_t  sp = 0;
 uint8_t  keys[16];
+
+float             glow[64 * 32];    // NEW: per-pixel brightness
+SDL_AudioDeviceID audio_dev = 0;    // NEW
+int               audio_rate = 44100; // NEW
 
 uint8_t font[80] = {
     0xF0,0x90,0x90,0x90,0xF0, // 0
@@ -53,6 +65,40 @@ int init_graphics(void) {
     return 1;
 }
 
+// SDL asks for samples here; square wave while sound_timer > 0
+void audio_callback(void *userdata, Uint8 *stream, int len) {
+    static float phase = 0.0f;
+    static float amp = 0.0f;
+    float *out = (float *)stream;
+    int count = len / sizeof(float);
+    float target = (sound_timer > 0) ? 0.15f : 0.0f;
+    for (int i = 0; i < count; i++) {
+        amp += (target - amp) * 0.002f;     // ramp avoids clicks
+        phase += 440.0f / audio_rate;
+        if (phase >= 1.0f) phase -= 1.0f;
+        out[i] = (phase < 0.5f) ? amp : -amp;
+    }
+}
+
+// opens audio, continues silently if it fails
+void init_audio(void) {
+    SDL_InitSubSystem(SDL_INIT_AUDIO);
+    SDL_AudioSpec want, have;
+    SDL_zero(want);
+    want.freq = 44100;
+    want.format = AUDIO_F32SYS;
+    want.channels = 1;
+    want.samples = 512;
+    want.callback = audio_callback;
+    audio_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    if (audio_dev == 0) {
+        printf("Audio unavailable: %s\n", SDL_GetError());
+        return;
+    }
+    audio_rate = have.freq;
+    SDL_PauseAudioDevice(audio_dev, 0);
+}
+
 int map_key(SDL_Keycode k) {
     switch (k) {
         case SDLK_1: return 0x1;  case SDLK_2: return 0x2;
@@ -83,10 +129,43 @@ void render(void) {
     SDL_RenderPresent(renderer);
 }
 
+
+// NEW: old-console look: solid pixels, slow fade
+void render_phosphor(double dt_ms) {
+    float frames = (float)(dt_ms * 60.0 / 1000.0);
+    float rise  = 1.0f - powf(1.0f - RISE, frames);
+    float decay = powf(DECAY, frames);
+
+    SDL_SetRenderDrawColor(renderer, 8, 8, 12, 255);   // near-black background
+    SDL_RenderClear(renderer);
+
+    for (int row = 0; row < 32; row++) {
+        for (int col = 0; col < 64; col++) {
+            int i = row * 64 + col;
+
+            // lit pixels brighten fast, unlit ones fade slowly
+            if (display[i]) glow[i] += (1.0f - glow[i]) * rise;
+            else            glow[i] *= decay;
+
+            if (glow[i] < 0.03f) continue;
+            float b = glow[i];
+
+            SDL_SetRenderDrawColor(renderer,
+                8 + (uint8_t)(b * 247 * TINT_R),
+                8 + (uint8_t)(b * 247 * TINT_G),
+                12 + (uint8_t)(b * 243 * TINT_B), 255);
+            SDL_Rect r = { col * SCALE, row * SCALE, SCALE, SCALE };
+            SDL_RenderFillRect(renderer, &r);
+        }
+    }
+    SDL_RenderPresent(renderer);
+}
+
 void init(void) {
     memset(memory, 0, sizeof(memory));
     memset(V, 0, sizeof(V));
     memset(display, 0, sizeof(display));
+    memset(glow, 0, sizeof(glow));      // NEW
     memset(keys, 0, sizeof(keys));
     memset(stack, 0, sizeof(stack));
     memcpy(&memory[0x50], font, sizeof(font));
@@ -300,6 +379,14 @@ int main(int argc, char **argv) {
         printf("SDL failed %s\n", SDL_GetError());
         return 1;
     }
+    init_audio();                       // NEW
+
+    // NEW: timing state
+    int    ips = 700;                   // instructions per second (+ / -)
+    int    paused = 0;
+    double cpu_acc = 0.0;
+    double timer_acc = 0.0;
+    Uint32 last = SDL_GetTicks();
 
     int running = 1;
     while (running) {
@@ -307,6 +394,17 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) running = 0;
             if (e.type == SDL_KEYDOWN) {
+                SDL_Keycode s = e.key.keysym.sym;       // NEW: hotkeys
+                if (s == SDLK_ESCAPE) running = 0;
+                if (s == SDLK_p) paused = !paused;
+                if (s == SDLK_BACKSPACE) {              // reset
+                    init();
+                    load_rom(argv[1]);
+                    cpu_acc = timer_acc = 0.0;
+                }
+                if ((s == SDLK_EQUALS || s == SDLK_KP_PLUS) && ips < 5000) ips += 100;
+                if ((s == SDLK_MINUS || s == SDLK_KP_MINUS) && ips > 100) ips -= 100;
+
                 int k = map_key(e.key.keysym.sym);
                 if (k >= 0) keys[k] = 1;
             }
@@ -316,15 +414,31 @@ int main(int argc, char **argv) {
             }
         }
 
-        for (int i = 0; i < 10; i++) cycle();
+        // NEW: real elapsed time (capped so window drags don't cause a jump)
+        Uint32 now = SDL_GetTicks();
+        double dt = now - last;
+        last = now;
+        if (dt > 100.0) dt = 100.0;
 
-        if (delay_timer > 0) delay_timer--;
-        if (sound_timer > 0) sound_timer--;
+        if (!paused) {
+            // CPU runs at ips instead of a fixed 10 per frame
+            cpu_acc += dt * ips / 1000.0;
+            while (cpu_acc >= 1.0) { cycle(); cpu_acc -= 1.0; }
 
-        render();
-        SDL_Delay(16);
+            // timers tick at exactly 60 Hz
+            timer_acc += dt;
+            while (timer_acc >= 1000.0 / 60.0) {
+                if (delay_timer > 0) delay_timer--;
+                if (sound_timer > 0) sound_timer--;
+                timer_acc -= 1000.0 / 60.0;
+            }
+        }
+
+        render_phosphor(dt);            // was render()
+        SDL_Delay(4);                   // was SDL_Delay(16)
     }
 
+    if (audio_dev) SDL_CloseAudioDevice(audio_dev);     // NEW
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
