@@ -68,6 +68,7 @@ int init_graphics(void) {
 
 // square wave while sound_timer > 0
 void audio_callback(void *userdata, Uint8 *stream, int len) {
+    (void)userdata;
     static float phase = 0.0f;
     static float amp = 0.0f;
     float *out = (float *)stream;
@@ -166,7 +167,7 @@ void init(void) {
     memset(memory, 0, sizeof(memory));
     memset(V, 0, sizeof(V));
     memset(display, 0, sizeof(display));
-    memset(glow, 0, sizeof(glow));      // NEW
+    memset(glow, 0, sizeof(glow));      
     memset(keys, 0, sizeof(keys));
     memset(stack, 0, sizeof(stack));
     memcpy(&memory[0x50], font, sizeof(font));
@@ -193,7 +194,7 @@ int load_rom(const char *filename) {
     }
     
     if (size > 3584){   // if size greater than 4096 - 0x200 flag rom too large
-        printf("Rom too large: %ld bytes. Max available is 3584 bytes", size);
+        printf("Rom too large: %ld bytes. Max available is 3584 bytes\n", size);
         fclose(f);
         return 0;
     }
@@ -433,12 +434,12 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) running = 0;
             if (e.type == SDL_KEYDOWN) {
-                SDL_Keycode s = e.key.keysym.sym;       // NEW: hotkeys
+                SDL_Keycode s = e.key.keysym.sym;       // hotkeys
                 if (s == SDLK_ESCAPE) running = 0;
                 if (s == SDLK_p) paused = !paused;
                 if (s == SDLK_BACKSPACE) {              // reset
                     init();
-                    load_rom(argv[1]);
+                    load_rom(rom);
                     cpu_acc = timer_acc = 0.0;
                 }
                 if ((s == SDLK_EQUALS || s == SDLK_KP_PLUS) && ips < 5000) ips += 100;
