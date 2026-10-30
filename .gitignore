@@ -1,0 +1,20 @@
+# Compiled binaries
+chip
+chip8
+*.o
+*.out
+*.exe
+
+# Debug / profiling
+*.dSYM/
+*.log
+core
+vgcore.*
+gmon.out
+
+# Editor / OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
