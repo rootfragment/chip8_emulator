@@ -10,6 +10,7 @@ A CHIP-8 interpreter written in C with SDL2. It runs classic CHIP-8 games like P
 - Delay and sound timers ticking at exactly 60 Hz, independent of CPU speed
 - Square-wave audio (440 Hz) while the sound timer is active, with a short ramp to avoid clicks
 - Phosphor-style rendering: pixels brighten quickly and fade slowly, which reduces flicker from XOR sprite drawing
+- Switchable renderer: phosphor glow (default) or plain pixels with `--no-glow`
 - Runtime hotkeys for pause, reset and speed control
 
 ## Requirements
@@ -33,20 +34,35 @@ brew install sdl2
 ## Build
 
 ```bash
+make
+```
+
+This produces a `chip` binary. `make clean` removes it.
+
+If you don't have `make`, you can compile directly:
+
+```bash
 gcc chip.c -o chip $(sdl2-config --cflags --libs) -lm
 ```
 
 ## Run
 
 ```bash
-./chip path/to/rom.ch8
+./chip [--no-glow] path/to/rom.ch8
 ```
 
-Example:
+Options:
+
+- `--no-glow`: draws plain white pixels with no fade, instead of the default phosphor-glow display.
+
+Examples:
 
 ```bash
 ./chip Pong.ch8
+./chip --no-glow Pong.ch8
 ```
+
+You can also build and run in one step with `make run ROM=Pong.ch8`.
 
 ## Controls
 
@@ -85,7 +101,7 @@ Emulator hotkeys:
 
 ## Possible future work
 
-- Command-line options for window scale, speed and quirks
+- More command-line options for window scale, speed and quirks
 - Unit tests for the arithmetic opcodes and a headless CPU core
 - Disassembler / debugger view
 - Save states
