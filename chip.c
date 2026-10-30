@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <math.h>               // NEW
+#include <math.h>               
 #include <SDL2/SDL.h>
 
 #define SCALE 10
@@ -28,9 +28,9 @@ uint16_t stack[16];
 uint8_t  sp = 0;
 uint8_t  keys[16];
 
-float             glow[64 * 32];    // NEW: per-pixel brightness
-SDL_AudioDeviceID audio_dev = 0;    // NEW
-int               audio_rate = 44100; // NEW
+float             glow[64 * 32];    // per-pixel brightness
+SDL_AudioDeviceID audio_dev = 0;    // 
+int               audio_rate = 44100; // 
 
 uint8_t font[80] = {
     0xF0,0x90,0x90,0x90,0xF0, // 0
@@ -65,7 +65,7 @@ int init_graphics(void) {
     return 1;
 }
 
-// SDL asks for samples here; square wave while sound_timer > 0
+// square wave while sound_timer > 0
 void audio_callback(void *userdata, Uint8 *stream, int len) {
     static float phase = 0.0f;
     static float amp = 0.0f;
@@ -130,7 +130,7 @@ void render(void) {
 }
 
 
-// NEW: old-console look: solid pixels, slow fade
+// old-console look: solid pixels, slow fade
 void render_phosphor(double dt_ms) {
     float frames = (float)(dt_ms * 60.0 / 1000.0);
     float rise  = 1.0f - powf(1.0f - RISE, frames);
@@ -179,8 +179,30 @@ void init(void) {
 int load_rom(const char *filename) {
     FILE *f = fopen(filename, "rb");
     if (!f) return 0;
-    fread(&memory[0x200], 1, 4096 - 0x200, f);
+    
+    //find file size
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+    
+    if (size <= 0){
+        printf("Rom is empty : %s\n Rechecck rom", filename);
+        fclose(f);
+        return 0;
+    }
+    
+    if (size > 3584){   // if size greater than 4096 - 0x200 flag rom too large
+        printf("Rom too large: %ld bytes. Max available is 3584 bytes");
+        fclose(f);
+        return 0;
+    }
+    size_t got = fread(&memory[0x200], 1, size, f);
     fclose(f);
+    
+    if (got != (size_t) size){
+        printf("Failed to read Rom fully: %s\n", filename);
+        return 0;
+    }
     return 1;
 }
 
@@ -379,9 +401,8 @@ int main(int argc, char **argv) {
         printf("SDL failed %s\n", SDL_GetError());
         return 1;
     }
-    init_audio();                       // NEW
+    init_audio();                       
 
-    // NEW: timing state
     int    ips = 700;                   // instructions per second (+ / -)
     int    paused = 0;
     double cpu_acc = 0.0;
@@ -414,7 +435,6 @@ int main(int argc, char **argv) {
             }
         }
 
-        // NEW: real elapsed time (capped so window drags don't cause a jump)
         Uint32 now = SDL_GetTicks();
         double dt = now - last;
         last = now;
@@ -438,7 +458,7 @@ int main(int argc, char **argv) {
         SDL_Delay(4);                   // was SDL_Delay(16)
     }
 
-    if (audio_dev) SDL_CloseAudioDevice(audio_dev);     // NEW
+    if (audio_dev) SDL_CloseAudioDevice(audio_dev);     
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
