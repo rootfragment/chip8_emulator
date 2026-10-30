@@ -29,8 +29,9 @@ uint8_t  sp = 0;
 uint8_t  keys[16];
 
 float             glow[64 * 32];    // per-pixel brightness
-SDL_AudioDeviceID audio_dev = 0;    // 
-int               audio_rate = 44100; // 
+int use_glow = 1;
+SDL_AudioDeviceID audio_dev = 0;    
+int               audio_rate = 44100; 
 
 uint8_t font[80] = {
     0xF0,0x90,0x90,0x90,0xF0, // 0
@@ -186,13 +187,13 @@ int load_rom(const char *filename) {
     rewind(f);
     
     if (size <= 0){
-        printf("Rom is empty : %s\n Rechecck rom", filename);
+        printf("Rom is empty : %s\n Rechecck rom\n", filename);
         fclose(f);
         return 0;
     }
     
     if (size > 3584){   // if size greater than 4096 - 0x200 flag rom too large
-        printf("Rom too large: %ld bytes. Max available is 3584 bytes");
+        printf("Rom too large: %ld bytes. Max available is 3584 bytes", size);
         fclose(f);
         return 0;
     }
@@ -386,14 +387,31 @@ void cycle(void) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        printf("Usage: chip romfile\n");
+    const char *rom = NULL;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--no-glow") == 0) {
+            use_glow = 0;
+        } else if (strncmp(argv[i], "--", 2) == 0) {
+            printf("Unknown option: %s\n", argv[i]);
+            return 1;
+        } else {
+            if (rom) {
+                printf("Only one ROM file allowed\n");
+                return 1;
+            }
+            rom = argv[i];
+        }
+    }
+
+    if (!rom) {
+        printf("Usage: chip [--no-glow] romfile\n");
         return 1;
     }
 
     init();
-    if (!load_rom(argv[1])) {
-        printf("Could not open romfile %s\n", argv[1]);
+    if (!load_rom(rom)) {
+        printf("Could not load romfile %s\n", rom);
         return 1;
     }
 
@@ -401,7 +419,7 @@ int main(int argc, char **argv) {
         printf("SDL failed %s\n", SDL_GetError());
         return 1;
     }
-    init_audio();                       
+    init_audio();                     
 
     int    ips = 700;                   // instructions per second (+ / -)
     int    paused = 0;
@@ -454,7 +472,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        render_phosphor(dt);            // was render()
+        if (use_glow) render_phosphor(dt);
+        else          render();          
         SDL_Delay(4);                   // was SDL_Delay(16)
     }
 
